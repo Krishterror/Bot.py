@@ -1,11 +1,12 @@
 import os
+import random
 import requests
 import telebot
 
-# 1. Fetching configurations from Render's Environment Variables
+# Fetch configurations from Render's Environment Variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 SHORTENER_API_KEY = os.environ.get("SHORTENER_API")
-# Replace 'YOUR_SHORTENER_DOMAIN' with your actual shortener site (e.g., shrinkme.io, adfly.com)
+# Replace with your shortener's base domain (e.g., shrinkme.io, adf.ly)
 SHORTENER_URL = "https://YOUR_SHORTENER_DOMAIN/api?api=" 
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -17,37 +18,50 @@ def send_welcome(message):
 @bot.message_handler(commands=['getkey'])
 def generate_key_link(message):
     user_id = message.from_user.id
-    bot.reply_to(message, "Generating your link... please wait.")
+    bot.reply_to(message, "Generating your customized link... please wait.")
     
     try:
-        # STEP A: Define the destination page where the user gets the final key
-        # In a fully automated setup, you would fetch this from your original bot, 
-        # but as a start, this points to your key destination page.
+        # STEP 1: Define the destination page where the key is displayed
         destination_url = f"https://yourlandingpage.com{user_id}"
         
-        # STEP B: Request a shortened, monetized link from your shortener API
-        api_request_url = f"{SHORTENER_URL}{SHORTENER_API_KEY}&url={destination_url}"
+        # STEP 2: Generate your custom alias structure
+        # Chooses a random number between 1 and 100
+        random_premium_number = random.randint(1, 100) 
+        # Appends User ID to keep it unique so the shortener API doesn't throw a "Duplicate Alias" error
+        custom_alias = f"premium{random_premium_number}_{user_id}"
+        
+        # STEP 3: Request a shortened link with the custom alias attached
+        # Note: Most shorteners use '&alias=' to handle custom names
+        api_request_url = f"{SHORTENER_URL}{SHORTENER_API_KEY}&url={destination_url}&alias={custom_alias}"
+        
         response = requests.get(api_request_url).json()
         
-        # STEP C: Send the link to the user
+        # STEP 4: Process the response and give the link to the user
         if response.get("status") == "success" or "shortenedUrl" in response:
-            # Note: Adjust 'shortenedUrl' based on your exact shortener's JSON response template
             short_link = response.get("shortenedUrl", response.get("shortened", ""))
             
             bot.send_message(
                 message.chat.id, 
-                f"Your 48-hour key is ready!\n\n👉 Click here to unlock it: {short_link}\n\n"
-                "Complete the captcha/ads on the page to view your premium key."
+                f"🎁 Your 48-hour premium key link is ready!\n\n"
+                f"Generated Alias Slot: **premium{random_premium_number}**\n\n"
+                f"👉 Click here to unlock: {short_link}\n\n"
+                "Complete the step on the page to view your key."
             )
         else:
-            bot.send_message(message.chat.id, "❌ Error generating your link. Please try again later.")
+            # If the alias fails or is taken, retry automatically without an alias as a fallback
+            fallback_url = f"{SHORTENER_URL}{SHORTENER_API_KEY}&url={destination_url}"
+            fallback_resp = requests.get(fallback_url).json()
+            short_link = fallback_resp.get("shortenedUrl", fallback_resp.get("shortened", ""))
+            
+            bot.send_message(
+                message.chat.id,
+                f"Your 48-hour key is ready (Standard Slot):\n👉 {short_link}"
+            )
             
     except Exception as e:
-        print(f"Error: {e}")
-        bot.send_message(message.chat.id, "⚠️ An error occurred while talking to the shortener service.")
+        print(f"Error encountered: {e}")
+        bot.send_message(message.chat.id, "⚠️ System busy. Please try requesting your key again in a moment.")
 
-# Start the bot
 if __name__ == "__main__":
-    print("Bot is running...")
+    print("Bot with custom alias support is running...")
     bot.infinity_polling()
-
