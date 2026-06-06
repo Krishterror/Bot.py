@@ -1,6 +1,7 @@
 import os
 import random
 import asyncio
+import threading
 import telebot
 from telethon import TelegramClient
 
@@ -17,22 +18,13 @@ ORIGINAL_BOT_USERNAME = os.environ.get("ORIGINAL_BOT_USERNAME")
 bot = telebot.TeleBot(BOT_TOKEN)
 
 async def fetch_key_from_original_bot():
-    """
-    Connects to Telegram as a user client, requests a key from the original bot,
-    and returns its text response. Uses a safe string name to avoid colon errors.
-    """
-    # Fixes the colon error by using a strict text string 'user_session' for the session name
+    """Connects to Telegram as a user client and requests a key from the original bot."""
     async with TelegramClient('user_session', API_ID, API_HASH) as tg_client:
-        # Send the request command to the target bot
         await tg_client.send_message(ORIGINAL_BOT_USERNAME, "/getkey")
-        
-        # Wait 4 seconds for the original bot to process and reply
         await asyncio.sleep(4) 
         
-        # Fetch the very last message received from that bot
         async for message in tg_client.iter_messages(ORIGINAL_BOT_USERNAME, limit=1):
             return message.text
-            
     return "No key found"
 
 @bot.message_handler(commands=['start', 'help'])
@@ -47,23 +39,23 @@ def generate_key_link(message):
     try:
         import requests
         
-        # 1. Fetch the real key from the original bot
+        # Fetch the real key from the original bot
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         real_premium_key = loop.run_until_complete(fetch_key_from_original_bot())
         
-        # 2. Pack the fetched key into a destination link
+        # Pack the fetched key into a destination link
         destination_url = f"https://yourlandingpage.com{real_premium_key}"
         
-        # 3. Create a unique custom alias (premium1 to premium100) + User ID to prevent duplicate errors
+        # Create a unique custom alias (premium1 to premium100) + User ID to prevent duplicate errors
         random_premium_number = random.randint(1, 100) 
         custom_alias = f"premium{random_premium_number}_{user_id}"
         
-        # 4. Request the monetized link from your shortener API
+        # Request the monetized link from your shortener API
         api_request_url = f"{SHORTENER_URL}{SHORTENER_API_KEY}&url={destination_url}&alias={custom_alias}"
         response = requests.get(api_request_url).json()
         
-        # 5. Deliver the link to your user
+        # Deliver the link to your user
         if response.get("status") == "success" or "shortenedUrl" in response:
             short_link = response.get("shortenedUrl", response.get("shortened", ""))
             bot.send_message(
@@ -80,6 +72,26 @@ def generate_key_link(message):
         print(f"Error details: {e}")
         bot.send_message(message.chat.id, "⚠️ System busy. Please try again in a moment.")
 
+# ====================================================================
+# FAKE WEB SERVER ROUTINE TO BYPASS RENDER FREE TIER TIMEOUT ERRORS
+# ====================================================================
 if __name__ == "__main__":
+    import http.server
+    import socketserver
+    
+    # Automatically binds to Render's required public assignment port
+    PORT = int(os.environ.get("PORT", 10000))
+    handler = http.server.SimpleHTTPRequestHandler
+    
+    def run_fake_server():
+        try:
+            with socketserver.TCPServer(("0.0.0.0", PORT), handler) as httpd:
+                httpd.serve_forever()
+        except Exception:
+            pass
+
+    # Fires up the web listener safely in the background thread
+    threading.Thread(target=run_fake_server, daemon=True).start()
+
     print("Automated Cloner Bot is initialized...")
     bot.infinity_polling()
